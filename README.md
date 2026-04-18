@@ -97,6 +97,8 @@ El dashboard queda disponible en `http://localhost:8501`.
 | `pandas` | Procesamiento de datos |
 | `requests` / `beautifulsoup4` | Scraping |
 | `PyPDF2` | Lectura de PDFs del BCRA |
+| `fpdf2` | Generación de reportes PDF |
+| `kaleido` | Exportación de gráficos Plotly a imagen |
 
 ---
 

@@ -6,3 +6,5 @@ openpyxl
 plotly
 streamlit
 numpy
+fpdf2
+kaleido
