@@ -104,5 +104,5 @@ El dashboard queda disponible en `http://localhost:8501`.
 
 ## Notas
 
-- La base de datos (`bcra_dashboard.db`) no está incluida en el repositorio. Se genera al correr `main.py`.
+- Las bases de datos (`bcra_dashboard.db` y `bcra_dashboard_demo.db`) están incluidas en el repositorio. `bcra_dashboard.db` se sobreescribe al correr `main.py` con datos frescos; `bcra_dashboard_demo.db` es un snapshot estático para pruebas rápidas sin necesidad de ejecutar el scraper.
 - El scraping respeta los tiempos de respuesta del servidor del BCRA. La primera ejecución puede demorar varios minutos dependiendo de la cantidad de entidades.
