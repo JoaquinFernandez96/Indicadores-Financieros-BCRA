@@ -12,9 +12,6 @@ scripts_unused/
 *.xlsx
 *.csv
 
-# Databases (generated, large)
-*.db
-
 # Python cache
 __pycache__/
 *.pyc
