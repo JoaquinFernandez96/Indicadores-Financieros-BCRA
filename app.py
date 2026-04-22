@@ -155,7 +155,7 @@ ratios_disponibles = [col for col in df_benchmarks.columns if col not in META_CO
 # -----------------
 # Cargar datos de la entidad seleccionada tempranamente para el logo
 all_entities = df_enriched[['Nombre de Entidad', 'es_cliente']].drop_duplicates()
-nombres_display = sorted([ (f"Cliente | {row['Nombre de Entidad']}" if row['es_cliente'] else str(row['Nombre de Entidad'])) for _, row in all_entities.iterrows() ])
+nombres_display = sorted([str(row['Nombre de Entidad']) for _, row in all_entities.iterrows()])
 
 # Intentar recuperar la selección previa si existe en session_state para mantener el logo sincronizado
 if 'selected_display' not in st.session_state and nombres_display:
@@ -412,8 +412,8 @@ st.markdown("""
 
 st.sidebar.markdown(f"### {render_svg('settings', 18)} Configuración", unsafe_allow_html=True)
 
-# Mapeo de Entidades (Marcado de Clientes sin emojis)
-map_display_to_real = { ("Cliente | " + row['Nombre de Entidad'] if row['es_cliente'] else str(row['Nombre de Entidad'])): str(row['Nombre de Entidad']) for _, row in all_entities.iterrows() }
+# Mapeo de Entidades
+map_display_to_real = {str(row['Nombre de Entidad']): str(row['Nombre de Entidad']) for _, row in all_entities.iterrows()}
 
 def parse_period(p):
     meses = {'Ene':1,'Feb':2,'Mar':3,'Abr':4,'May':5,'Jun':6,'Jul':7,'Ago':8,'Sep':9,'Oct':10,'Nov':11,'Dic':12}
@@ -1394,7 +1394,7 @@ with tab_rank:
 
     st.markdown("---")
     st.markdown(f"### {render_svg('table', 24)} Detalle del Ranking ({periodo_seleccionado})", unsafe_allow_html=True)
-    cols_rank = ["Ranking", "Nombre de Entidad", ratio_rank, "grupo_sistema", "es_cliente"]
+    cols_rank = ["Ranking", "Nombre de Entidad", ratio_rank, "grupo_sistema"]
     st.dataframe(df_rank[cols_rank].style.format({ratio_rank: "{:.2f}"}), use_container_width=True, hide_index=True)
 
 # Lógica de Exportación Final (al final del script para tener acceso a todas las variables)
@@ -1427,7 +1427,8 @@ if 'download_pdf' in st.session_state and st.session_state.download_pdf:
                 fig_line.write_image(p, scale=2)
                 paths['trend'] = p
             
-            pdf_bytes = generate_pdf_report(cliente_seleccionado, periodo_seleccionado, ref_mercado, kpi_report_data, paths)
+            trend_indicator_name = locals().get('ratio_trend')
+            pdf_bytes = generate_pdf_report(cliente_seleccionado, periodo_seleccionado, ref_mercado, kpi_report_data, paths, trend_indicator=trend_indicator_name)
             
             st.sidebar.download_button(
                 label="Descargar Mi Reporte PDF",

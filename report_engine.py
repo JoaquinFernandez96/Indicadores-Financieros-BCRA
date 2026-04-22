@@ -75,7 +75,7 @@ class PDFReport(FPDF):
 
         self.set_y(y_start + height + 10)
 
-def generate_pdf_report(cliente, periodo, ref_mercado, kpis, image_paths):
+def generate_pdf_report(cliente, periodo, ref_mercado, kpis, image_paths, trend_indicator=None):
     pdf = PDFReport(cliente, periodo, ref_mercado)
     pdf.alias_nb_pages()
     pdf.add_page()
@@ -94,7 +94,10 @@ def generate_pdf_report(cliente, periodo, ref_mercado, kpis, image_paths):
         pdf.image(image_paths['radar'], x=30, w=150)
 
     pdf.ln(10)
-    pdf.section_title("Evolución del Indicador Clave")
+    trend_title = "Evolución del Indicador Clave"
+    if trend_indicator:
+        trend_title = f"Evolución Histórica: {trend_indicator}"
+    pdf.section_title(trend_title)
     if 'trend' in image_paths:
         pdf.image(image_paths['trend'], x=10, w=190)
 
