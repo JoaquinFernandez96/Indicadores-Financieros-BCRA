@@ -54,7 +54,7 @@ def load_data_v3(db_path="bcra_dashboard.db", read_only=False):
         SELECT o.*, e.nombre 
         FROM observations o
         LEFT JOIN entities e ON o.codigo_entidad = e.codigo_entidad
-        WHERE o.seccion NOT IN ('Indicadores', 'Balances')
+        WHERE o.fuente = 'deudores'
     """
     df_deud_long = pd.read_sql(query_deud, db.conn)
     if not df_deud_long.empty:

@@ -118,10 +118,6 @@ def scrape_balances_table(html, bco, nombre, seccion_defecto):
             
             if len(texts) < (num_periods + 1): continue
             
-            # Para balances, si el indicador está en MAYÚSCULAS lo tratamos como sección
-            if indicador.isupper() and len(indicador) > 3:
-                current_section = indicador
-                
             vals = texts[-num_periods:]
             for label, val_str in zip(current_periods, vals):
                 valor = parse_bcra_number(val_str)
