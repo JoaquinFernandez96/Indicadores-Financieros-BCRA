@@ -115,10 +115,9 @@ def _get_entities_from_bcra():
 
 def get_entities():
     """
-    Obtiene el listado de entidades financieras con estrategia de tres niveles:
-      1. Base de datos local (bcra_dashboard.db) — más rápido y confiable
-      2. Scraping del sitio del BCRA                — si la DB no existe aún
-      3. Lista mínima hardcodeada                   — último recurso para no abortar
+    Obtiene el listado de entidades financieras con estrategia de dos niveles:
+      1. Tabla entities de la base de datos local — fuente autoritativa
+      2. Scraping del sitio del BCRA              — si la DB no existe aún
 
     El BCRA cambió su estructura web y ya no expone un <select> en la página base;
     las URLs ahora usan parámetros ?bco=XXXXX&nom=NOMBRE directamente.
@@ -136,92 +135,8 @@ def get_entities():
     if entities:
         return entities
 
-    print("      [!] Scraping del BCRA no disponible. Usando lista oficial de entidades (Com. A 8367).")
-
-    # --- Nivel 3: Lista oficial extraída de Com. "A" 8367 del BCRA (12/12/2025) ---
-    # Fuente: Anexo listado de entidades financieras Grupo A y B.
-    # Nota: los códigos de compañías financieras tienen 5 dígitos sin padding (ej: 44077).
-    # Para el resto se usa padding de 5 dígitos con ceros (ej: 00007).
-    ENTIDADES_CONOCIDAS = [
-        # --- Grupo A ---
-        {"codigo": "00007", "nombre": "BANCO DE GALICIA Y BUENOS AIRES S.A."},
-        {"codigo": "00011", "nombre": "BANCO DE LA NACION ARGENTINA"},
-        {"codigo": "00014", "nombre": "BANCO DE LA PROVINCIA DE BUENOS AIRES"},
-        {"codigo": "00015", "nombre": "INDUSTRIAL AND COMMERCIAL BANK OF CHINA (ARGENTINA) S.A.U."},
-        {"codigo": "00016", "nombre": "CITIBANK N.A."},
-        {"codigo": "00017", "nombre": "BANCO BBVA ARGENTINA S.A."},
-        {"codigo": "00020", "nombre": "BANCO DE LA PROVINCIA DE CORDOBA S.A."},
-        {"codigo": "00027", "nombre": "BANCO SUPERVIELLE S.A."},
-        {"codigo": "00029", "nombre": "BANCO DE LA CIUDAD DE BUENOS AIRES"},
-        {"codigo": "00034", "nombre": "BANCO PATAGONIA S.A."},
-        {"codigo": "00044", "nombre": "BANCO HIPOTECARIO S.A."},
-        {"codigo": "00072", "nombre": "BANCO SANTANDER ARGENTINA S.A."},
-        {"codigo": "00191", "nombre": "BANCO CREDICOOP COOPERATIVO LIMITADO"},
-        {"codigo": "00285", "nombre": "BANCO MACRO S.A."},
-        {"codigo": "00299", "nombre": "BANCO COMAFI S.A."},
-        {"codigo": "00322", "nombre": "BANCO INDUSTRIAL S.A."},
-        {"codigo": "00330", "nombre": "NUEVO BANCO DE SANTA FE S.A."},
-        # --- Grupo B ---
-        {"codigo": "00045", "nombre": "BANCO DE SAN JUAN S.A."},
-        {"codigo": "00065", "nombre": "BANCO MUNICIPAL DE ROSARIO"},
-        {"codigo": "00083", "nombre": "BANCO DEL CHUBUT S.A."},
-        {"codigo": "00086", "nombre": "BANCO DE SANTA CRUZ S.A."},
-        {"codigo": "00093", "nombre": "BANCO DE LA PAMPA S.A."},
-        {"codigo": "00094", "nombre": "BANCO DE CORRIENTES S.A."},
-        {"codigo": "00097", "nombre": "BANCO PROVINCIA DEL NEUQUÉN S.A."},
-        {"codigo": "00131", "nombre": "BANK OF CHINA LIMITED, SUCURSAL BUENOS AIRES"},
-        {"codigo": "00143", "nombre": "BRUBANK S.A.U."},
-        {"codigo": "00147", "nombre": "BIBANK S.A."},
-        {"codigo": "00165", "nombre": "JPMORGAN CHASE BANK, NATIONAL ASSOCIATION (SUCURSAL BUENOS AIRES)"},
-        {"codigo": "00198", "nombre": "BANCO DE VALORES S.A."},
-        {"codigo": "00247", "nombre": "BANCO ROELA S.A."},
-        {"codigo": "00254", "nombre": "BANCO MARIVA S.A."},
-        {"codigo": "00266", "nombre": "BNP PARIBAS"},
-        {"codigo": "00268", "nombre": "BANCO PROVINCIA DE TIERRA DEL FUEGO"},
-        {"codigo": "00269", "nombre": "BANCO DE LA REPUBLICA ORIENTAL DEL URUGUAY"},
-        {"codigo": "00277", "nombre": "BANCO SAENZ S.A."},
-        {"codigo": "00281", "nombre": "BANCO MERIDIAN S.A."},
-        {"codigo": "00300", "nombre": "BANCO DE INVERSION Y COMERCIO EXTERIOR S.A."},
-        {"codigo": "00301", "nombre": "BANCO PIANO S.A."},
-        {"codigo": "00305", "nombre": "BANCO JULIO S.A."},
-        {"codigo": "00309", "nombre": "BANCO RIOJA SOCIEDAD ANONIMA UNIPERSONAL"},
-        {"codigo": "00310", "nombre": "BANCO DEL SOL S.A."},
-        {"codigo": "00311", "nombre": "NUEVO BANCO DEL CHACO S.A."},
-        {"codigo": "00312", "nombre": "BANCO VOII S.A."},
-        {"codigo": "00315", "nombre": "BANCO DE FORMOSA S.A."},
-        {"codigo": "00319", "nombre": "BANCO CMF S.A."},
-        {"codigo": "00321", "nombre": "BANCO DE SANTIAGO DEL ESTERO S.A."},
-        {"codigo": "00331", "nombre": "BANCO CETELEM ARGENTINA S.A."},
-        {"codigo": "00332", "nombre": "BANCO DE SERVICIOS FINANCIEROS S.A."},
-        {"codigo": "00338", "nombre": "BANCO DE SERVICIOS Y TRANSACCIONES S.A.U."},
-        {"codigo": "00339", "nombre": "RCI BANQUE S.A."},
-        {"codigo": "00340", "nombre": "BACS BANCO DE CREDITO Y SECURITIZACION S.A."},
-        {"codigo": "00341", "nombre": "BANCO MASVENTAS S.A."},
-        {"codigo": "00384", "nombre": "UALA BANK S.A.U."},
-        {"codigo": "00386", "nombre": "NUEVO BANCO DE ENTRE RIOS S.A."},
-        {"codigo": "00389", "nombre": "BANCO COLUMBIA S.A."},
-        {"codigo": "00426", "nombre": "BANCO BICA S.A."},
-        {"codigo": "00431", "nombre": "BANCO COINAG S.A."},
-        {"codigo": "00432", "nombre": "BANCO DE COMERCIO S.A."},
-        {"codigo": "00435", "nombre": "BANCO SUCREDITO REGIONAL S.A.U."},
-        {"codigo": "00448", "nombre": "BANCO DINO S.A."},
-        # --- Compañías Financieras (códigos de 5 dígitos sin padding) ---
-        {"codigo": "44077", "nombre": "COMPAÑIA FINANCIERA ARGENTINA S.A."},
-        {"codigo": "44088", "nombre": "VOLKSWAGEN FINANCIAL SERVICES COMPAÑIA FINANCIERA S.A."},
-        {"codigo": "44092", "nombre": "FCA COMPAÑIA FINANCIERA S.A."},
-        {"codigo": "44093", "nombre": "GPAT COMPAÑIA FINANCIERA S.A.U."},
-        {"codigo": "44094", "nombre": "MERCEDES-BENZ COMPAÑIA FINANCIERA ARGENTINA S.A."},
-        {"codigo": "44095", "nombre": "ROMBO COMPAÑIA FINANCIERA S.A."},
-        {"codigo": "44096", "nombre": "JOHN DEERE CREDIT COMPAÑIA FINANCIERA S.A."},
-        {"codigo": "44098", "nombre": "PSA FINANCE ARGENTINA COMPAÑIA FINANCIERA S.A."},
-        {"codigo": "44099", "nombre": "TOYOTA COMPAÑIA FINANCIERA DE ARGENTINA S.A."},
-        {"codigo": "45030", "nombre": "NARANJA DIGITAL COMPAÑIA FINANCIERA S.A.U."},
-        {"codigo": "45056", "nombre": "MONTEMAR COMPAÑIA FINANCIERA S.A."},
-        {"codigo": "45072", "nombre": "REBA COMPAÑIA FINANCIERA S.A."},
-        {"codigo": "65203", "nombre": "CREDITO REGIONAL COMPAÑIA FINANCIERA S.A.U."},
-    ]
-    print(f"      [OK] Usando {len(ENTIDADES_CONOCIDAS)} entidades oficiales (Com. A 8367) como fallback.")
-    return ENTIDADES_CONOCIDAS
+    print("      [!] No se pudo obtener el listado de entidades. Poblar la tabla entities antes de ejecutar el scraper.")
+    return []
 
 
 def extract_indicators(bco, nombre):

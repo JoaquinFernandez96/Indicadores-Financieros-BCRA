@@ -91,10 +91,9 @@ def main():
         
         # Guardar metadatos de la entidad (con logo)
         db.save_entities(pd.DataFrame([{
-            'codigo_entidad': int(bco), 
-            'nombre': nombre, 
+            'codigo_entidad': int(bco),
+            'nombre': nombre,
             'logo_url': logo if logo else None,
-            'es_cliente': 0 # Defaults
         }]))
         
         time.sleep(0.5) # Respeto al servidor

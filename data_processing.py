@@ -1,36 +1,15 @@
 import pandas as pd
 from PyPDF2 import PdfReader
 import re
-import difflib
 import os
 from database_manager import DatabaseManager
 
-def normalize_name(name):
-    if not isinstance(name, str): return ""
-    name = name.upper()
-    name = re.sub(r'\b(S\.A\.|S\.A\.U\.|SOCIEDAD ANSIÓN|SUCURSAL BUENOS AIRES)\b', '', name)
-    name = re.sub(r'[^A-Z0-9]', ' ', name)
-    return ' '.join(name.split())
-
-def is_in_text(norm_name, code, text):
-    if not text: return False
-    # El listado del BCRA tiene el formato: "CÓDIGO ENTIDAD" uno por línea.
-    # Buscamos el código al inicio de línea seguido de espacio.
-    pattern = fr'(?m)^\s*{code}\s+'
-    if re.search(pattern, text): return True
-    return False
 
 def main():
     db = DatabaseManager()
     print("Iniciando procesamiento de datos (SQLite)...")
 
-    # 1. Cargar recursos para enriquecimiento
-    try:
-        df_clientes = pd.read_excel("CLIENTES + CUIT.xlsx")
-        clientes_norm = [normalize_name(str(c)) for c in df_clientes['Cliente'].dropna()]
-    except:
-        clientes_norm = []
-
+    # 1. Cargar grupos desde PDF
     try:
         reader = PdfReader("A-8367 (Listado SF completo).pdf")
         full_text = "\n".join([p.extract_text() for p in reader.pages]).upper()
@@ -55,7 +34,7 @@ def main():
             else:
                 text_a, text_b = "", ""
                 
-        # 2. Extraer mapeos de grupos y guardarlos
+        # Extraer mapeos de grupos y guardarlos
         if text_a or text_b:
             print("Extrayendo mapeos de grupos desde el PDF...")
             groups_mapping = []
@@ -77,31 +56,11 @@ def main():
     except Exception as e:
         print(f"Error parseando PDF: {e}")
 
-    # 3. Enriquecer Entidades
+    # 2. Enriquecer Entidades con grupos
     print("Enriqueciendo metadatos de entidades...")
     df_entities = pd.read_sql("SELECT * FROM entities", db.conn)
     df_mapped_groups = pd.read_sql("SELECT * FROM entity_groups", db.conn)
-    
-    es_cliente_list = []
-    
-    for _, row in df_entities.iterrows():
-        nombre = str(row['nombre'])
-        norm = normalize_name(nombre)
-        
-        # Cliente
-        es_cliente = False
-        if nombre:
-            matches = difflib.get_close_matches(norm, clientes_norm, n=1, cutoff=0.85)
-            if matches: es_cliente = True
-            else:
-                for c in clientes_norm:
-                    if len(c) > 5 and c in norm:
-                        es_cliente = True
-                        break
-        es_cliente_list.append(es_cliente)
-            
-    df_entities['es_cliente'] = es_cliente_list
-    
+
     # Unir con grupos mapeados
     df_entities = pd.merge(df_entities.drop(columns=['grupo_sistema']), 
                            df_mapped_groups, 

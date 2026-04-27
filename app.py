@@ -41,8 +41,7 @@ def load_data_v3(db_path="bcra_dashboard.db", read_only=False):
     # 2. Cargar Indicadores (pivoted)
     df_enriched = db.get_wide_data('Indicadores')
     df_enriched = df_enriched.rename(columns={'codigo_entidad': 'Codigo_Entidad', 'nombre': 'Nombre de Entidad', 'periodo': 'Periodo'})
-    # Unir con es_cliente y grupo_sistema
-    df_enriched = pd.merge(df_enriched, df_entities[['Codigo_Entidad', 'es_cliente', 'grupo_sistema']], on='Codigo_Entidad', how='left')
+    df_enriched = pd.merge(df_enriched, df_entities[['Codigo_Entidad', 'grupo_sistema']], on='Codigo_Entidad', how='left')
     
     # 3. Cargar EECC y Deudores
     df_eecc = db.get_wide_data('Balances')
@@ -95,7 +94,7 @@ def load_data_v3(db_path="bcra_dashboard.db", read_only=False):
                     df[col] = df[col].astype(str).str.strip()
             
             # 2. Force numeric for all other columns (indicators)
-            id_cols = ['Codigo_Entidad', 'Nombre de Entidad', 'Periodo', 'es_cliente', 'grupo_sistema', 'Agrupacion', 'Metrica', 'logo_url']
+            id_cols = ['Codigo_Entidad', 'Nombre de Entidad', 'Periodo', 'grupo_sistema', 'Agrupacion', 'Metrica', 'logo_url']
             for col in df.columns:
                 if col not in id_cols:
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -147,15 +146,14 @@ SECCIONES = {
 }
 
 # Todos los ratios disponibles (excluyendo columnas de meta-datos)
-META_COLS = {'Codigo_Entidad', 'Nombre de Entidad', 'Periodo', 'es_cliente', 'grupo_sistema', 'Agrupacion', 'Metrica', 'Logo_URL'}
+META_COLS = {'Codigo_Entidad', 'Nombre de Entidad', 'Periodo', 'grupo_sistema', 'Agrupacion', 'Metrica', 'Logo_URL'}
 ratios_disponibles = [col for col in df_benchmarks.columns if col not in META_COLS]
 
 # -----------------
 # 1. SIDEBAR
 # -----------------
 # Cargar datos de la entidad seleccionada tempranamente para el logo
-all_entities = df_enriched[['Nombre de Entidad', 'es_cliente']].drop_duplicates()
-nombres_display = sorted([str(row['Nombre de Entidad']) for _, row in all_entities.iterrows()])
+nombres_display = sorted(df_enriched['Nombre de Entidad'].astype(str).unique().tolist())
 
 # Intentar recuperar la selección previa si existe en session_state para mantener el logo sincronizado
 if 'selected_display' not in st.session_state and nombres_display:
@@ -1339,7 +1337,7 @@ with tab_rank:
     # 1. Filtro por Grupo en Ranking
     only_group_rank = st.checkbox("Filtrar solo entidades del mismo grupo", value=False, help=f"Filtra para comparar únicamente con bancos del grupo: {grupo_cliente}")
     
-    df_rank = df_enriched[df_enriched['Periodo'] == periodo_seleccionado][['Nombre de Entidad', ratio_rank, 'grupo_sistema', 'es_cliente']].copy()
+    df_rank = df_enriched[df_enriched['Periodo'] == periodo_seleccionado][['Nombre de Entidad', ratio_rank, 'grupo_sistema']].copy()
     df_rank = df_rank.drop_duplicates(subset=['Nombre de Entidad'], keep='first')
     df_rank = df_rank.dropna(subset=[ratio_rank])
     

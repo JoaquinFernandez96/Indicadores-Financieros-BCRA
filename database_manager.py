@@ -39,7 +39,6 @@ class DatabaseManager:
                 codigo_entidad INTEGER PRIMARY KEY,
                 nombre TEXT,
                 logo_url TEXT,
-                es_cliente BOOLEAN,
                 grupo_sistema TEXT
             )
         ''')
@@ -77,7 +76,27 @@ class DatabaseManager:
         except sqlite3.OperationalError:
             print("Añadiendo columna 'retrieved_at' a observations (migración)...")
             cursor.execute("ALTER TABLE observations ADD COLUMN retrieved_at DATETIME")
-        
+
+        # 6. Eliminar columna 'es_cliente' de entities si existe (migración)
+        cols_info = cursor.execute("PRAGMA table_info(entities)").fetchall()
+        col_names = [c[1] for c in cols_info]
+        if 'es_cliente' in col_names:
+            print("Migrando entities: eliminando columna 'es_cliente'...")
+            cursor.execute('''
+                CREATE TABLE entities_new (
+                    codigo_entidad INTEGER PRIMARY KEY,
+                    nombre TEXT,
+                    logo_url TEXT,
+                    grupo_sistema TEXT
+                )
+            ''')
+            cursor.execute('''
+                INSERT INTO entities_new (codigo_entidad, nombre, logo_url, grupo_sistema)
+                SELECT codigo_entidad, nombre, logo_url, grupo_sistema FROM entities
+            ''')
+            cursor.execute('DROP TABLE entities')
+            cursor.execute('ALTER TABLE entities_new RENAME TO entities')
+
         self.conn.commit()
 
     def save_observations(self, df):
@@ -120,7 +139,7 @@ class DatabaseManager:
         if df.empty: return
         
         # Columnas estándar
-        cols = ['codigo_entidad', 'nombre', 'logo_url', 'es_cliente', 'grupo_sistema']
+        cols = ['codigo_entidad', 'nombre', 'logo_url', 'grupo_sistema']
         for col in cols:
             if col not in df.columns:
                 df[col] = None
@@ -131,8 +150,8 @@ class DatabaseManager:
             
             # 1. Insertar las que no existen
             cursor.execute('''
-                INSERT INTO entities (codigo_entidad, nombre, logo_url, es_cliente, grupo_sistema)
-                SELECT t.codigo_entidad, t.nombre, t.logo_url, t.es_cliente, 
+                INSERT INTO entities (codigo_entidad, nombre, logo_url, grupo_sistema)
+                SELECT t.codigo_entidad, t.nombre, t.logo_url,
                        COALESCE(g.grupo, t.grupo_sistema, 'Otros')
                 FROM temp_entities t
                 LEFT JOIN entity_groups g ON t.codigo_entidad = g.codigo_entidad
@@ -142,10 +161,9 @@ class DatabaseManager:
             # 2. Actualizar las existentes (respetando grupos)
             cursor.execute('''
                 UPDATE entities
-                SET 
+                SET
                     nombre = COALESCE((SELECT nombre FROM temp_entities WHERE codigo_entidad = entities.codigo_entidad), entities.nombre),
                     logo_url = COALESCE((SELECT logo_url FROM temp_entities WHERE codigo_entidad = entities.codigo_entidad), entities.logo_url),
-                    es_cliente = COALESCE((SELECT es_cliente FROM temp_entities WHERE codigo_entidad = entities.codigo_entidad), entities.es_cliente),
                     grupo_sistema = COALESCE(
                         (SELECT grupo FROM entity_groups WHERE codigo_entidad = entities.codigo_entidad),
                         (SELECT grupo_sistema FROM temp_entities WHERE codigo_entidad = entities.codigo_entidad),
