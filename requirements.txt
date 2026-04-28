@@ -1,4 +1,6 @@
-requests
+httpx[http2]>=0.27
+tenacity>=8.2
+lxml>=5.0
 beautifulsoup4
 pandas
 PyPDF2

@@ -16,7 +16,7 @@ def scrape_debtors_table(html, bco, nombre, seccion_defecto):
     Parseador robusto para la Situación de Deudores del BCRA.
     Detecta las 4 carteras principales y mapea periodos y valores correctamente.
     """
-    soup = BeautifulSoup(html, 'html.parser')
+    soup = BeautifulSoup(html, 'lxml')
     records = []
     
     # Buscamos todas las tablas relevantes.
@@ -91,7 +91,7 @@ def scrape_debtors_table(html, bco, nombre, seccion_defecto):
 def scrape_balances_table(html, bco, nombre, seccion_defecto):
     """Parseador simple para Estados Contables (Balances)."""
     # Por ahora similar a deudores pero sin la lógica de las 4 carteras
-    soup = BeautifulSoup(html, 'html.parser')
+    soup = BeautifulSoup(html, 'lxml')
     records = []
     tables = soup.find_all('table')
     

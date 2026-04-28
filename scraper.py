@@ -1,107 +1,189 @@
-import requests
-import pandas as pd
-import time
+import asyncio
+import logging
 import os
+from dataclasses import dataclass, field
+
+import pandas as pd
+
 from database_manager import DatabaseManager
 from scrapers.api_client import get_entities, extract_indicators
-from scrapers.html_parser import scrape_debtors_table, scrape_balances_table
+from scrapers.async_fetcher import AsyncFetcher
+from scrapers.html_parser import scrape_balances_table, scrape_debtors_table
 
-# Configuración y URLs
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+
 EECC_URL = "https://www.bcra.gob.ar/entidades-financieras-estados-contables/?bco={bco}"
 DEUDORES_URL = "https://www.bcra.gob.ar/entidades-financieras-situacion-deudores/?bco={bco}"
 
-# Límite para pruebas (0 para todas las entidades)
-TEST_MODE_LIMIT = 0 
+# Set to N > 0 to limit the run to the first N entities (useful for testing)
+TEST_MODE_LIMIT: int = 0
 
-def fetch_html_content(url):
-    """Auxiliar para descargas HTML con reintentos mínimos."""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    }
-    try:
-        r = requests.get(url, headers=headers, timeout=15)
-        r.raise_for_status()
-        return r.text
-    except Exception as e:
-        print(f"      [!] Error de red en {url}: {e}")
-        return None
+_BATCH_SIZE = 20  # flush to DB every N entities
 
-def main():
+
+@dataclass
+class EntityResult:
+    codigo: str
+    nombre: str
+    logo_url: str | None
+    recs_ind: list[dict] = field(default_factory=list)
+    recs_eecc: list[dict] = field(default_factory=list)
+    recs_deud: list[dict] = field(default_factory=list)
+
+
+async def _scrape_one(fetcher: AsyncFetcher, entity: dict, idx: int, total: int) -> EntityResult:
+    bco: str = entity["codigo"]
+    nombre: str = entity["nombre"]
+    logger.info("  [%02d/%02d] %s", idx, total, nombre)
+
+    # All 3 HTTP fetches fire concurrently for this entity
+    recs_ind_task = extract_indicators(fetcher, bco, nombre)
+    html_eecc_task = fetcher.get_text(EECC_URL.format(bco=bco))
+    html_deud_task = fetcher.get_text(DEUDORES_URL.format(bco=bco))
+
+    (recs_ind, logo), html_eecc, html_deud = await asyncio.gather(
+        recs_ind_task, html_eecc_task, html_deud_task
+    )
+
+    # HTML parsing is CPU-bound — offload to a thread so the event loop stays free
+    recs_eecc: list[dict] = []
+    recs_deud: list[dict] = []
+
+    if html_eecc:
+        recs_eecc = await asyncio.to_thread(
+            scrape_balances_table, html_eecc, bco, nombre, "Balances"
+        )
+    if html_deud:
+        recs_deud = await asyncio.to_thread(
+            scrape_debtors_table, html_deud, bco, nombre, "Deudores"
+        )
+
+    logger.info(
+        "         ( %d ind | %d eecc | %d deud )",
+        len(recs_ind), len(recs_eecc), len(recs_deud),
+    )
+    return EntityResult(
+        codigo=bco,
+        nombre=nombre,
+        logo_url=logo,
+        recs_ind=recs_ind,
+        recs_eecc=recs_eecc,
+        recs_deud=recs_deud,
+    )
+
+
+def _flush_batch(db: DatabaseManager, results: list[EntityResult]) -> None:
+    """Write a batch of EntityResults to the database synchronously."""
+    all_ind: list[dict] = []
+    all_eecc: list[dict] = []
+    all_deud: list[dict] = []
+    entity_rows: list[dict] = []
+
+    for r in results:
+        all_ind.extend(r.recs_ind)
+        all_eecc.extend(r.recs_eecc)
+        all_deud.extend(r.recs_deud)
+        entity_rows.append({
+            "codigo_entidad": int(r.codigo),
+            "nombre": r.nombre,
+            "logo_url": r.logo_url,
+        })
+
+    if all_ind:
+        df = pd.DataFrame(all_ind)
+        df["fuente"] = "indicadores"
+        db.save_observations(df)
+
+    if all_eecc:
+        df = pd.DataFrame(all_eecc)
+        df["fuente"] = "eecc"
+        db.save_observations(df)
+
+    if all_deud:
+        df = pd.DataFrame(all_deud)
+        df["fuente"] = "deudores"
+        db.save_observations(df)
+
+    if entity_rows:
+        db.save_entities(pd.DataFrame(entity_rows))
+
+
+def _chunked(lst: list, size: int):
+    for i in range(0, len(lst), size):
+        yield lst[i : i + size]
+
+
+async def _main_async() -> None:
     db = DatabaseManager()
-    print("\n" + "="*60)
-    print("  SCRAPER BCRA MODULAR — INDICADORES + EECC + DEUDORES")
-    print("="*60)
-    
+    print("\n" + "=" * 60)
+    print("  SCRAPER BCRA — ASYNC (httpx + asyncio)")
+    print("=" * 60)
+
     entities = get_entities()
-    if not entities: 
-        print("  [!] No se pudieron cargar las entidades. Abortando.")
+    if not entities:
+        logger.error("  [!] No se pudieron cargar las entidades. Abortando.")
         return
-        
-    print(f"  [1/3] Entidades encontradas: {len(entities)}")
 
-    # Scrappear indicadores del Sistema Total (bco=AAA00) — se guarda con codigo_entidad=0
-    print("\n  [1.5/3] Scrapeando indicadores del Sistema Total (AAA00)...")
-    recs_sistema, _ = extract_indicators('AAA00', 'Sistema Total')
-    if recs_sistema:
-        df_sistema = pd.DataFrame(recs_sistema)
-        df_sistema['fuente'] = 'indicadores_sistema'
-        db.save_observations(df_sistema)
-        print(f"         ( {len(recs_sistema)} indicadores del sistema guardados )")
-    else:
-        print("         [!] No se pudieron obtener indicadores del Sistema Total.")
+    logger.info("  [1/3] Entidades encontradas: %d", len(entities))
 
-    limit_str = f"LIMITADO A {TEST_MODE_LIMIT}" if TEST_MODE_LIMIT else "TODAS"
-    print(f"\n  [2/3] Extrayendo datos ({limit_str})...")
-    
-    LOGO_DIR = "logos"
-    if not os.path.exists(LOGO_DIR): os.makedirs(LOGO_DIR)
-    
     target_entities = entities[:TEST_MODE_LIMIT] if TEST_MODE_LIMIT else entities
-    
-    for i, entity in enumerate(target_entities, 1):
-        bco, nombre = entity["codigo"], entity["nombre"]
-        print(f"  [{i:02d}/{len(target_entities):02d}] {nombre}")
-        
-        # 1. Indicadores Financieros (Vía API/Table Parser)
-        recs_ind, logo = extract_indicators(bco, nombre)
-        if recs_ind:
-            df_ind = pd.DataFrame(recs_ind)
-            df_ind['fuente'] = 'indicadores'
-            db.save_observations(df_ind)
-        
-        # 2. Estados Contables (Vía HTML Scraper con Balance Logic)
-        html_eecc = fetch_html_content(EECC_URL.format(bco=bco))
-        if html_eecc:
-            recs_eecc = scrape_balances_table(html_eecc, bco, nombre, "Balances")
-            if recs_eecc:
-                df_eecc = pd.DataFrame(recs_eecc)
-                df_eecc['fuente'] = 'eecc'
-                db.save_observations(df_eecc)
-            
-        # 3. Situación de Deudores (Vía HTML Scraper con Portfolio Logic)
-        html_deud = fetch_html_content(DEUDORES_URL.format(bco=bco))
-        if html_deud:
-            recs_deud = scrape_debtors_table(html_deud, bco, nombre, "Deudores")
-            if recs_deud:
-                df_deud = pd.DataFrame(recs_deud)
-                df_deud['fuente'] = 'deudores'
-                db.save_observations(df_deud)
-        
-        print(f"         ( {len(recs_ind)} ind | {len(recs_eecc) if html_eecc else 0} eecc | {len(recs_deud) if html_deud else 0} deud )")
-        
-        # Guardar metadatos de la entidad (con logo)
-        db.save_entities(pd.DataFrame([{
-            'codigo_entidad': int(bco),
-            'nombre': nombre,
-            'logo_url': logo if logo else None,
-        }]))
-        
-        time.sleep(0.5) # Respeto al servidor
-    
+    total = len(target_entities)
+
+    async with AsyncFetcher() as fetcher:
+        # Sistema Total (codigo AAA00 → stored as codigo_entidad=0)
+        logger.info("  [1.5/3] Scrapeando indicadores del Sistema Total (AAA00)...")
+        recs_sistema, _ = await extract_indicators(fetcher, "AAA00", "Sistema Total")
+        if recs_sistema:
+            df_sistema = pd.DataFrame(recs_sistema)
+            df_sistema["fuente"] = "indicadores_sistema"
+            db.save_observations(df_sistema)
+            logger.info("         ( %d indicadores del sistema guardados )", len(recs_sistema))
+        else:
+            logger.warning("         [!] No se pudieron obtener indicadores del Sistema Total.")
+
+        limit_str = f"LIMITADO A {TEST_MODE_LIMIT}" if TEST_MODE_LIMIT else "TODAS"
+        logger.info("  [2/3] Extrayendo datos (%s)...", limit_str)
+
+        # Ensure logos dir exists
+        if not os.path.exists("logos"):
+            os.makedirs("logos")
+
+        # Process entities in batches; within each batch all entities run concurrently
+        for batch in _chunked(list(enumerate(target_entities, 1)), _BATCH_SIZE):
+            tasks = [
+                _scrape_one(fetcher, entity, idx, total)
+                for idx, entity in batch
+            ]
+            results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+
+            successful: list[EntityResult] = []
+            for (idx, entity), result in zip(batch, results_raw):
+                if isinstance(result, Exception):
+                    logger.error(
+                        "  [!] Error en entidad %s (%s): %s",
+                        entity["codigo"], entity["nombre"], result,
+                    )
+                else:
+                    successful.append(result)
+
+            if successful:
+                _flush_batch(db, successful)
+
     print("\n  [3/3] Proceso completado en base de datos.")
     print("\n" + "=" * 60)
     print("  PROCESO DE SCRAPPING FINALIZADO")
     print("=" * 60)
+
+
+def main() -> None:
+    """Sync entry point — keeps the public interface unchanged for main.py."""
+    asyncio.run(_main_async())
+
 
 if __name__ == "__main__":
     main()
