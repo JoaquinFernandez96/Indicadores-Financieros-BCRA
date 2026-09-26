@@ -172,7 +172,16 @@ async def _main_async() -> None:
 
 def main() -> None:
     """Sync entry point — keeps the public interface unchanged for main.py."""
-    asyncio.run(_main_async())
+    try:
+        asyncio.run(_main_async())
+    except RuntimeError as exc:
+        if "running" in str(exc).lower():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(asyncio.run, _main_async())
+                future.result()
+        else:
+            raise
 
 
 if __name__ == "__main__":
