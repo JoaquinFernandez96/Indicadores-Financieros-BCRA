@@ -220,36 +220,31 @@ st.markdown("""
         font-family: 'Inter', sans-serif !important;
     }
 
-    /* Tabs Sticky UI - Final Correction (Aggressive Override) */
-    div[data-testid="stTabs"] {
-        overflow: visible !important;
-    }
+    /* Tabs UI: Estilo limpio y alta visibilidad */
     div[data-testid="stTabs"] [role="tablist"] {
-        position: sticky !important;
-        top: 0px !important;
-        z-index: 100000 !important;
-        background-color: var(--background-color) !important;
-        margin-top: -10px !important;
-        padding-top: 10px !important;
-        border-bottom: 2px solid rgba(128,128,128,0.1) !important;
+        gap: 12px !important;
+        border-bottom: 2px solid rgba(128, 128, 128, 0.2) !important;
+        padding-bottom: 4px !important;
+        margin-bottom: 16px !important;
     }
     
-    /* Forzar visibilidad en Light Mode */
-    [data-testid="stTabs"] [role="tab"] {
+    div[data-testid="stTabs"] [role="tab"] {
+        padding: 8px 16px !important;
         background-color: transparent !important;
+        border-radius: 8px 8px 0 0 !important;
     }
     
-    /* Estilo de los Labels de los Tabs para Visibilidad */
-    [data-testid="stTabs"] [role="tab"] p {
+    div[data-testid="stTabs"] [role="tab"] p {
         font-size: 1.05rem !important;
-        font-weight: 700 !important;
-        opacity: 0.6;
-        transition: opacity 0.2s ease;
+        font-weight: 600 !important;
+        opacity: 0.8 !important;
+        transition: color 0.2s ease, opacity 0.2s ease !important;
     }
     
-    [data-testid="stTabs"] [role="tab"][aria-selected="true"] p {
-        opacity: 1 !important;
-        color: #2563EB !important; /* Resaltar activo con Azul Bloomberg */
+    div[data-testid="stTabs"] [role="tab"][aria-selected="true"] p {
+        opacity: 1.0 !important;
+        font-weight: 800 !important;
+        color: #2563EB !important; /* Azul Bloomberg activo */
     }
 
     /* Sidebar - Ancho Reducido y Adaptativo */
@@ -646,10 +641,10 @@ def create_sparkline(df, column, color="#0047AB"):
     return fig
 
 tab_dash, tab_eecc, tab_deudores, tab_rank = st.tabs([
-    f"{render_svg('layout', 18)} Dashboard General",
-    f"{render_svg('file-text', 18)} Estados Contables",
-    f"{render_svg('users', 18)} Situación de Deudores",
-    f"{render_svg('list', 18)} Ranking de Entidades"
+    "📊 Dashboard General",
+    "📑 Estados Contables",
+    "👥 Situación de Deudores",
+    "🏆 Ranking de Entidades"
 ])
 
 
@@ -997,7 +992,7 @@ with tab_dash:
                 st.table(df_ref_plot.set_index('Métrica').style.format("{:.2f}"))
 
 with tab_eecc:
-    st.markdown(f"## {render_svg('file-text', 28)} Estados Contables")
+    st.markdown(f"## {render_svg('file-text', 28)} Estados Contables", unsafe_allow_html=True)
     st.markdown(f"**Entidad:** `{cliente_seleccionado}` | **Período:** `{periodo_seleccionado}`")
     
     # Filtrar datos de EECC para la entidad y periodo
@@ -1106,7 +1101,7 @@ with tab_eecc:
 
         st.markdown("---")
         # 4. Gráfico de Evolución de Activo, Pasivo y Patrimonio (Valores Absolutos)
-        st.markdown(f"### {render_svg('trending-up', 24)} Evolución de Activo, Pasivo y Patrimonio")
+        st.markdown(f"### {render_svg('trending-up', 24)} Evolución de Activo, Pasivo y Patrimonio", unsafe_allow_html=True)
         
         fig_eecc_hist = go.Figure()
         fig_eecc_hist.add_trace(go.Scatter(x=df_eecc_hist['Periodo'], y=df_eecc_hist['A C T I V O']/1e3, name="Activo", line=dict(color=PEER_COLORS["Seleccionado"], width=3)))
@@ -1131,7 +1126,7 @@ with tab_eecc:
         st.dataframe(df_eecc_hist[cols_present].style.format({c: "{:,.0f}" for c in cols_present if c != "Periodo"}), use_container_width=True)
 
 with tab_deudores:
-    st.markdown(f"## {render_svg('users', 28)} Situación de Deudores")
+    st.markdown(f"## {render_svg('users', 28)} Situación de Deudores", unsafe_allow_html=True)
     st.markdown(f"**Entidad:** `{cliente_seleccionado}` | **Período:** `{periodo_seleccionado}`")
     
     # Selector de Categoría (Filtro solicitado)
@@ -1336,7 +1331,7 @@ with tab_deudores:
 
         st.markdown("---")
         # 4. Evolución de la Cartera Irregular (Tendencia de Mora)
-        st.markdown(f"### {render_svg('shield-alert', 24)} Evolución Histórica de Mora (%)")
+        st.markdown(f"### {render_svg('shield-alert', 24)} Evolución Histórica de Mora (%)", unsafe_allow_html=True)
         
         df_deud_hist['Mora_Pct'] = df_deud_hist[[cols_sit_sel["3"], cols_sit_sel["4"], cols_sit_sel["5"]]].sum(axis=1)
         fig_mora_trend = px.line(
