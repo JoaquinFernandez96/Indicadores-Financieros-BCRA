@@ -13,8 +13,24 @@ import io
 # Configuración de página
 st.set_page_config(page_title="Dashboard Financiero BCRA", layout="wide")
 
+ICON_ALIASES = {
+    "layout": "dashboard",
+    "file-text": "table",
+    "users": "comparison",
+    "list": "ranking",
+    "trending-up": "chart",
+    "bar-chart": "chart",
+    "grid": "table",
+    "database": "bank",
+    "layers": "assets",
+    "shield": "capital",
+    "shield-alert": "capital",
+    "target": "efficiency",
+}
+
 def render_svg(icon_name, size=24):
-    icon_path = os.path.join("static", "icons", f"{icon_name}.svg")
+    resolved_name = ICON_ALIASES.get(icon_name, icon_name)
+    icon_path = os.path.join("static", "icons", f"{resolved_name}.svg")
     try:
         with open(icon_path, "r", encoding="utf-8") as f:
             svg_content = f.read()
