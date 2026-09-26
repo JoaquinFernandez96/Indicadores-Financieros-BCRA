@@ -4,7 +4,15 @@ import pytest
 import respx
 
 from scrapers.async_fetcher import AsyncFetcher
-from scrapers.api_client import extract_indicators, _parse_json_response, _parse_html_response
+from scrapers.api_client import (
+    extract_indicators,
+    extract_eecc,
+    extract_debtors,
+    _parse_json_response,
+    _parse_html_response,
+    _parse_eecc_json,
+    _parse_debtors_json,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -136,3 +144,117 @@ async def test_extract_indicators_returns_empty_on_total_failure():
 
     assert records == []
     assert logo_url is None
+
+
+# ---------------------------------------------------------------------------
+# EECC (Balances) Tests
+# ---------------------------------------------------------------------------
+
+SAMPLE_EECC_JSON = {
+    "logo_banco_url": "https://example.com/logo_eecc.png",
+    "fechas": ["Dic-2024", "Dic-2025"],
+    "filas": [
+        {"nivel": 0, "titulo": "A C T I V O", "valores": [1000, 2000]},
+        {"nivel": 0, "titulo": "P A S I V O", "valores": [600, 1200]},
+        {"nivel": 0, "titulo": "P A T R I M O N I O   N E T O", "valores": [400, 800]},
+    ],
+}
+
+
+def test_parse_eecc_json_extracts_records():
+    records, logo_url = _parse_eecc_json(SAMPLE_EECC_JSON, bco_int=340, nombre="BACS")
+    assert logo_url == "https://example.com/logo_eecc.png"
+    assert len(records) == 6  # 3 indicators × 2 periods
+    assert all(r["codigo_entidad"] == 340 for r in records)
+    assert all(r["seccion"] == "Balances" for r in records)
+    assert all(r["nombre"] == "BACS" for r in records)
+
+    activos = [r for r in records if r["indicador"] == "A C T I V O"]
+    assert len(activos) == 2
+    assert {r["valor"] for r in activos} == {1000.0, 2000.0}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_extract_eecc_uses_json_api():
+    respx.get(url__regex=r".*entidades-financieras-estados-contables\.php.*category=00340").mock(
+        return_value=httpx.Response(200, json=SAMPLE_EECC_JSON)
+    )
+    async with AsyncFetcher(max_concurrent=2) as fetcher:
+        records, logo = await extract_eecc(fetcher, "00340", "BACS")
+
+    assert len(records) == 6
+    assert logo == "https://example.com/logo_eecc.png"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_extract_eecc_handles_failure():
+    respx.get(url__regex=r".*entidades-financieras-estados-contables\.php.*category=00340").mock(
+        return_value=httpx.Response(500)
+    )
+    async with AsyncFetcher(max_concurrent=2) as fetcher:
+        records, logo = await extract_eecc(fetcher, "00340", "BACS")
+
+    assert records == []
+    assert logo is None
+
+
+# ---------------------------------------------------------------------------
+# Deudores Tests
+# ---------------------------------------------------------------------------
+
+SAMPLE_DEUDORES_JSON = {
+    "logo_banco_url": "https://example.com/logo_deud.png",
+    "columnas": ["Dic-2024", "Dic-2025"],
+    "filas": [
+        {"titulo": "TOTAL DE FINANCIACIONES Y GARANTIAS OTORGADAS ($)", "valores": [100.0, 200.0]},
+        {"titulo": "TF.Sit.1: En situación normal (%)", "valores": [98.5, 99.0]},
+        {"titulo": "CARTERA COMERCIAL ($)", "valores": [50.0, 100.0]},
+        {"titulo": "C.COM.Sit.1: En situación normal (%)", "valores": [97.0, 98.0]},
+    ],
+}
+
+
+def test_parse_debtors_json_extracts_records():
+    records, logo_url = _parse_debtors_json(SAMPLE_DEUDORES_JSON, bco_int=340, nombre="BACS")
+    assert logo_url == "https://example.com/logo_deud.png"
+    assert len(records) == 8  # 4 rows × 2 periods
+    assert all(r["codigo_entidad"] == 340 for r in records)
+    assert all(r["nombre"] == "BACS" for r in records)
+
+    # Check portfolio tracking
+    tf_records = [r for r in records if "TF.Sit." in r["indicador"]]
+    assert len(tf_records) == 2
+    assert all(r["seccion"] == "TOTAL DE FINANCIACIONES Y GARANTIAS OTORGADAS ($)" for r in tf_records)
+
+    com_records = [r for r in records if "C.COM.Sit." in r["indicador"]]
+    assert len(com_records) == 2
+    assert all(r["seccion"] == "CARTERA COMERCIAL ($)" for r in com_records)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_extract_debtors_uses_json_api():
+    respx.get(url__regex=r".*entidades-financieras-situacion-deudores\.php.*category=00340").mock(
+        return_value=httpx.Response(200, json=SAMPLE_DEUDORES_JSON)
+    )
+    async with AsyncFetcher(max_concurrent=2) as fetcher:
+        records, logo = await extract_debtors(fetcher, "00340", "BACS")
+
+    assert len(records) == 8
+    assert logo == "https://example.com/logo_deud.png"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_extract_debtors_handles_failure():
+    respx.get(url__regex=r".*entidades-financieras-situacion-deudores\.php.*category=00340").mock(
+        return_value=httpx.Response(500)
+    )
+    async with AsyncFetcher(max_concurrent=2) as fetcher:
+        records, logo = await extract_debtors(fetcher, "00340", "BACS")
+
+    assert records == []
+    assert logo is None
+

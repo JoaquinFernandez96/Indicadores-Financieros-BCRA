@@ -6,9 +6,13 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from database_manager import DatabaseManager
-from scrapers.api_client import get_entities, extract_indicators
+from scrapers.api_client import (
+    get_entities,
+    extract_indicators,
+    extract_eecc,
+    extract_debtors,
+)
 from scrapers.async_fetcher import AsyncFetcher
-from scrapers.html_parser import scrape_balances_table, scrape_debtors_table
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -16,9 +20,6 @@ logging.basicConfig(
     format="%(asctime)s  %(message)s",
     datefmt="%H:%M:%S",
 )
-
-EECC_URL = "https://www.bcra.gob.ar/entidades-financieras-estados-contables/?bco={bco}"
-DEUDORES_URL = "https://www.bcra.gob.ar/entidades-financieras-situacion-deudores/?bco={bco}"
 
 # Set to N > 0 to limit the run to the first N entities (useful for testing)
 TEST_MODE_LIMIT: int = 0
@@ -41,27 +42,16 @@ async def _scrape_one(fetcher: AsyncFetcher, entity: dict, idx: int, total: int)
     nombre: str = entity["nombre"]
     logger.info("  [%02d/%02d] %s", idx, total, nombre)
 
-    # All 3 HTTP fetches fire concurrently for this entity
+    # All 3 API endpoints fire concurrently for this entity
     recs_ind_task = extract_indicators(fetcher, bco, nombre)
-    html_eecc_task = fetcher.get_text(EECC_URL.format(bco=bco))
-    html_deud_task = fetcher.get_text(DEUDORES_URL.format(bco=bco))
+    recs_eecc_task = extract_eecc(fetcher, bco, nombre)
+    recs_deud_task = extract_debtors(fetcher, bco, nombre)
 
-    (recs_ind, logo), html_eecc, html_deud = await asyncio.gather(
-        recs_ind_task, html_eecc_task, html_deud_task
+    (recs_ind, logo_ind), (recs_eecc, logo_eecc), (recs_deud, logo_deud) = await asyncio.gather(
+        recs_ind_task, recs_eecc_task, recs_deud_task
     )
 
-    # HTML parsing is CPU-bound — offload to a thread so the event loop stays free
-    recs_eecc: list[dict] = []
-    recs_deud: list[dict] = []
-
-    if html_eecc:
-        recs_eecc = await asyncio.to_thread(
-            scrape_balances_table, html_eecc, bco, nombre, "Balances"
-        )
-    if html_deud:
-        recs_deud = await asyncio.to_thread(
-            scrape_debtors_table, html_deud, bco, nombre, "Deudores"
-        )
+    logo = logo_ind or logo_eecc or logo_deud
 
     logger.info(
         "         ( %d ind | %d eecc | %d deud )",

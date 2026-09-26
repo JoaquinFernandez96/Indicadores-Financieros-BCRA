@@ -9,52 +9,54 @@ def main():
     db = DatabaseManager()
     print("Iniciando procesamiento de datos (SQLite)...")
 
-    # 1. Cargar grupos desde PDF
-    try:
-        reader = PdfReader("A-8367 (Listado SF completo).pdf")
-        full_text = "\n".join([p.extract_text() for p in reader.pages]).upper()
-        
-        # Estrategia más robusta: buscar "GRUPO A" y "GRUPO B" como encabezados de sección.
-        # Usamos regex para encontrar la posición de los grupos ignorando otros textos.
-        match_idx_a = re.search(r'\n\s*GRUPO\s+A\s*\n', full_text)
-        match_idx_b = re.search(r'\n\s*GRUPO\s+B\s*\n', full_text)
-        
-        if match_idx_a and match_idx_b:
-            idx_a = match_idx_a.end()
-            idx_b = match_idx_b.start()
-            text_a = full_text[idx_a:idx_b]
-            text_b = full_text[match_idx_b.end():]
-        else:
-            # Fallback a búsqueda rfind si fallan las regex de encabezado exacto
-            idx_a = full_text.rfind("\nGRUPO A")
-            idx_b = full_text.rfind("\nGRUPO B")
-            if idx_a != -1 and idx_b != -1 and idx_b > idx_a:
+    # 1. Cargar grupos desde PDF (si está disponible localmente)
+    pdf_path = "A-8367 (Listado SF completo).pdf"
+    if os.path.exists(pdf_path):
+        try:
+            reader = PdfReader(pdf_path)
+            full_text = "\n".join([p.extract_text() for p in reader.pages]).upper()
+            
+            # Estrategia más robusta: buscar "GRUPO A" y "GRUPO B" como encabezados de sección.
+            # Usamos regex para encontrar la posición de los grupos ignorando otros textos.
+            match_idx_a = re.search(r'\n\s*GRUPO\s+A\s*\n', full_text)
+            match_idx_b = re.search(r'\n\s*GRUPO\s+B\s*\n', full_text)
+            
+            if match_idx_a and match_idx_b:
+                idx_a = match_idx_a.end()
+                idx_b = match_idx_b.start()
                 text_a = full_text[idx_a:idx_b]
-                text_b = full_text[idx_b:]
+                text_b = full_text[match_idx_b.end():]
             else:
-                text_a, text_b = "", ""
+                # Fallback a búsqueda rfind si fallan las regex de encabezado exacto
+                idx_a = full_text.rfind("\nGRUPO A")
+                idx_b = full_text.rfind("\nGRUPO B")
+                if idx_a != -1 and idx_b != -1 and idx_b > idx_a:
+                    text_a = full_text[idx_a:idx_b]
+                    text_b = full_text[idx_b:]
+                else:
+                    text_a, text_b = "", ""
+                    
+            # Extraer mapeos de grupos y guardarlos
+            if text_a or text_b:
+                print("Extrayendo mapeos de grupos desde el PDF...")
+                groups_mapping = []
                 
-        # Extraer mapeos de grupos y guardarlos
-        if text_a or text_b:
-            print("Extrayendo mapeos de grupos desde el PDF...")
-            groups_mapping = []
-            
-            # Buscamos patrones como "123 BANCO..." al inicio de línea
-            # text_a -> Grupo A
-            for match in re.finditer(r'(?m)^\s*(\d+)\s+', text_a):
-                groups_mapping.append({'codigo_entidad': int(match.group(1)), 'grupo': 'Grupo A'})
-            
-            # text_b -> Grupo B
-            for match in re.finditer(r'(?m)^\s*(\d+)\s+', text_b):
-                groups_mapping.append({'codigo_entidad': int(match.group(1)), 'grupo': 'Grupo B'})
+                # Buscamos patrones como "123 BANCO..." al inicio de línea
+                # text_a -> Grupo A
+                for match in re.finditer(r'(?m)^\s*(\d+)\s+', text_a):
+                    groups_mapping.append({'codigo_entidad': int(match.group(1)), 'grupo': 'Grupo A'})
                 
-            if groups_mapping:
-                df_groups = pd.DataFrame(groups_mapping)
-                db.save_entity_groups(df_groups)
-                print(f"Se actualizaron {len(df_groups)} mapeos de grupos.")
+                # text_b -> Grupo B
+                for match in re.finditer(r'(?m)^\s*(\d+)\s+', text_b):
+                    groups_mapping.append({'codigo_entidad': int(match.group(1)), 'grupo': 'Grupo B'})
+                    
+                if groups_mapping:
+                    df_groups = pd.DataFrame(groups_mapping)
+                    db.save_entity_groups(df_groups)
+                    print(f"Se actualizaron {len(df_groups)} mapeos de grupos.")
 
-    except Exception as e:
-        print(f"Error parseando PDF: {e}")
+        except Exception as e:
+            print(f"Error parseando PDF: {e}")
 
     # 2. Enriquecer Entidades con grupos
     print("Enriqueciendo metadatos de entidades...")

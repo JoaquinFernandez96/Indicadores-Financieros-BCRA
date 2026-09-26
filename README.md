@@ -15,23 +15,26 @@ La aplicación extrae automáticamente datos del sitio del BCRA (estados contabl
 ```
 ├── app.py                  # Dashboard Streamlit (punto de entrada visual)
 ├── main.py                 # Pipeline de extracción y procesamiento
-├── scraper.py              # Orquestador del scraping
+├── scraper.py              # Orquestador asíncrono del scraping
 ├── data_processing.py      # Cruce, normalización y enriquecimiento de datos
 ├── database_manager.py     # Capa de acceso a SQLite
 ├── report_engine.py        # Generación de reportes PDF
 ├── scrapers/
-│   ├── api_client.py       # Cliente para la API de entidades del BCRA
-│   └── html_parser.py      # Parser de tablas HTML (EECC y deudores)
+│   ├── api_client.py       # Cliente para las APIs REST del BCRA
+│   ├── async_fetcher.py    # Cliente HTTP asíncrono con reintentos y HTTP/2
+│   └── html_parser.py      # Parseadores de compatibilidad histórica
+├── tests/                  # Suite de pruebas unitarias y de integración
 ├── static/icons/           # Íconos SVG para el dashboard
 ├── logos/                  # Logos de entidades financieras
-└── requirements.txt
+├── requirements.txt        # Dependencias de producción
+└── requirements-dev.txt    # Dependencias de desarrollo y testing
 ```
 
 ---
 
 ## Instalación
 
-**Requisitos:** Python 3.9+
+**Requisitos:** Python 3.10+
 
 ```bash
 # Clonar el repositorio
@@ -42,8 +45,11 @@ cd Indicadores-Financieros-BCRA
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Instalar dependencias
+# Instalar dependencias de producción
 pip install -r requirements.txt
+
+# (Opcional) Instalar dependencias de desarrollo y tests
+pip install -r requirements-dev.txt
 ```
 
 ---
@@ -52,7 +58,7 @@ pip install -r requirements.txt
 
 ### 1. Ejecutar el pipeline de datos
 
-Descarga y procesa todos los datos del BCRA. Genera `bcra_dashboard.db`.
+Descarga de forma asíncrona y concurrente todos los datos del BCRA y genera `bcra_dashboard.db`.
 
 ```bash
 python main.py
@@ -66,15 +72,22 @@ streamlit run app.py
 
 El dashboard queda disponible en `http://localhost:8501`.
 
+### 3. Ejecutar las pruebas
+
+```bash
+pytest
+```
+
 ---
 
 ## Fuentes de datos
 
 | Dato | Fuente |
 |------|--------|
-| Indicadores del sistema financiero | BCRA — API pública |
-| Estados contables por entidad | BCRA — HTML scraping |
-| Situación de deudores | BCRA — HTML scraping |
+| Listado de entidades | BCRA — API REST pública (`/api/endpoints/entidades-financieras.php?action=list`) |
+| Indicadores del sistema financiero | BCRA — API REST pública (`/api/endpoints/indicadores-economicos.php`) |
+| Estados contables por entidad | BCRA — API REST pública (`/api/endpoints/entidades-financieras-estados-contables.php`) |
+| Situación de deudores | BCRA — API REST pública (`/api/endpoints/entidades-financieras-situacion-deudores.php`) |
 
 ---
 
@@ -84,7 +97,7 @@ El dashboard queda disponible en `http://localhost:8501`.
 - Comparativa entre entidades (benchmarks)
 - Filtros por período, tipo de entidad y grupo
 - Exportación de reportes en PDF
-- Base de datos local con actualización incremental
+- Base de datos local con actualización incremental y concurrencia asíncrona
 
 ---
 
@@ -92,17 +105,17 @@ El dashboard queda disponible en `http://localhost:8501`.
 
 | Librería | Uso |
 |----------|-----|
-| `streamlit` | Dashboard web |
-| `plotly` | Gráficos interactivos |
-| `pandas` | Procesamiento de datos |
-| `requests` / `beautifulsoup4` | Scraping |
-| `PyPDF2` | Lectura de PDFs del BCRA |
-| `fpdf2` | Generación de reportes PDF |
-| `kaleido` | Exportación de gráficos Plotly a imagen |
+| `streamlit` | Dashboard web interactivo |
+| `plotly` | Gráficos interactivos y radar charts |
+| `pandas` | Procesamiento y cruce de datos |
+| `httpx[http2]` | Descarga asíncrona concurrente con HTTP/2 |
+| `tenacity` | Reintentos automáticos con backoff |
+| `fpdf2` | Generación de reportes ejecutivos en PDF |
+| `kaleido` | Exportación de gráficos Plotly a imágenes estáticas |
 
 ---
 
 ## Notas
 
-- Las bases de datos (`bcra_dashboard.db` y `bcra_dashboard_demo.db`) están incluidas en el repositorio. `bcra_dashboard.db` se sobreescribe al correr `main.py` con datos frescos; `bcra_dashboard_demo.db` es un snapshot estático para pruebas rápidas sin necesidad de ejecutar el scraper.
-- El scraping respeta los tiempos de respuesta del servidor del BCRA. La primera ejecución puede demorar varios minutos dependiendo de la cantidad de entidades.
+- Las bases de datos (`bcra_dashboard.db` y `bcra_dashboard_demo.db`) están incluidas en el repositorio. `bcra_dashboard.db` se actualiza al correr `main.py` con datos frescos; `bcra_dashboard_demo.db` es un snapshot estático para pruebas rápidas sin necesidad de ejecutar el scraper.
+- La extracción utiliza concurrencia asíncrona (`httpx` + `asyncio`) optimizada con límites de tasa para respetar los servidores del BCRA.

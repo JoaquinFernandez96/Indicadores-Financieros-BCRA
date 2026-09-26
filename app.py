@@ -411,7 +411,7 @@ st.markdown("""
 st.sidebar.markdown(f"### {render_svg('settings', 18)} Configuración", unsafe_allow_html=True)
 
 # Mapeo de Entidades
-map_display_to_real = {str(row['Nombre de Entidad']): str(row['Nombre de Entidad']) for _, row in all_entities.iterrows()}
+map_display_to_real = {name: name for name in nombres_display}
 
 def parse_period(p):
     meses = {'Ene':1,'Feb':2,'Mar':3,'Abr':4,'May':5,'Jun':6,'Jul':7,'Ago':8,'Sep':9,'Oct':10,'Nov':11,'Dic':12}
@@ -420,6 +420,17 @@ def parse_period(p):
         return int(a), meses.get(m, 0)
     except:
         return 0, 0
+
+def gather_periodos(*dfs):
+    periodos = []
+    for df in dfs:
+        if df is None or df.empty:
+            continue
+        if 'Periodo' in df.columns:
+            periodos.extend(df['Periodo'].dropna().astype(str).str.strip().tolist())
+        elif 'periodo' in df.columns:
+            periodos.extend(df['periodo'].dropna().astype(str).str.strip().tolist())
+    return sorted(set(periodos), key=parse_period, reverse=True)
 
 with st.sidebar.expander("Configuración de Entidad", expanded=True):
     selected_display = st.selectbox(
@@ -432,7 +443,7 @@ with st.sidebar.expander("Configuración de Entidad", expanded=True):
     st.session_state.selected_display = selected_display
     cliente_seleccionado = map_display_to_real[selected_display]
 
-    periodos_disponibles = sorted(df_enriched['Periodo'].dropna().unique().tolist(), key=parse_period, reverse=True)
+    periodos_disponibles = gather_periodos(df_enriched, df_eecc, df_deudores, df_benchmarks)
     ultimo_periodo = periodos_disponibles[0] if periodos_disponibles else "N/D"
     periodo_seleccionado = st.selectbox("Período:", periodos_disponibles)
     st.caption(f"Último dato disponible: `{ultimo_periodo}`")

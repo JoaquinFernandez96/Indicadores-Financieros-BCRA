@@ -48,13 +48,10 @@ def _get_entities_from_db() -> list[dict]:
 
 def _get_entities_from_bcra() -> list[dict]:
     """
-    Sync fallback: scrape the entity list from BCRA HTML pages.
+    Sync fallback: fetch the entity list from BCRA REST API.
     Only called when the local DB is empty (first run).
     """
-    import requests  # kept for this one-shot sync call only
-    import urllib3
-
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    import httpx
 
     headers = {
         "User-Agent": (
@@ -63,33 +60,23 @@ def _get_entities_from_bcra() -> list[dict]:
             "Chrome/120.0.0.0 Safari/537.36"
         )
     }
-    urls = [
-        "https://www.bcra.gob.ar/entidades-financieras-situacion-deudores/",
-        "https://www.bcra.gob.ar/entidades-financieras-estados-contables/",
-    ]
-    for url in urls:
-        try:
-            r = requests.get(url, headers=headers, timeout=15, verify=False)
-            r.raise_for_status()
-            soup = BeautifulSoup(r.text, "lxml")
-            select = (
-                soup.find("select", {"id": "bco"})
-                or soup.find("select", {"name": "bco"})
-                or soup.find("select")
-            )
-            if not select:
-                continue
-            entities = []
-            for opt in select.find_all("option"):
-                val = opt.get("value", "").strip()
-                nombre = opt.get_text(strip=True)
-                if val and val.lstrip("0").isdigit() and nombre:
-                    entities.append({"codigo": val.zfill(5), "nombre": nombre})
-            if entities:
-                logger.info("[OK] %d entidades cargadas desde BCRA (%s)", len(entities), url)
-                return entities
-        except Exception as exc:
-            logger.warning("[!] Fallo BCRA %s: %s", url, exc)
+    url = "https://www.bcra.gob.ar/api/endpoints/entidades-financieras.php?action=list"
+    try:
+        r = httpx.get(url, headers=headers, timeout=15, verify=False)
+        r.raise_for_status()
+        data = r.json()
+        entidades = data.get("entidades", [])
+        result = []
+        for ent in entidades:
+            cod = str(ent.get("codigo", "")).strip()
+            nom = ent.get("nombre", "").strip()
+            if cod and nom:
+                result.append({"codigo": cod.zfill(5), "nombre": nom})
+        if result:
+            logger.info("[OK] %d entidades cargadas desde BCRA API (%s)", len(result), url)
+            return result
+    except Exception as exc:
+        logger.warning("[!] Fallo BCRA API entidades %s: %s", url, exc)
     return []
 
 
@@ -120,6 +107,14 @@ def get_entities() -> list[dict]:
 # Indicator extraction (async — called concurrently per entity)
 # ---------------------------------------------------------------------------
 
+OFFICIAL_PORTFOLIOS = [
+    "TOTAL DE FINANCIACIONES Y GARANTIAS OTORGADAS ($)",
+    "CARTERA COMERCIAL ($)",
+    "CARTERA DE CONSUMO O VIVIENDA ($)",
+    "CARTERA COMERCIAL ASIMILABLE A CONSUMO ($)",
+]
+
+
 async def extract_indicators(
     fetcher: AsyncFetcher,
     bco: str,
@@ -133,8 +128,8 @@ async def extract_indicators(
     Records match the schema expected by DatabaseManager.save_observations().
     """
     url_api = (
-        f"https://www.bcra.gob.ar/api-indicadores-economicos.php"
-        f"?action=indicadores&bco={bco}"
+        f"https://www.bcra.gob.ar/api/endpoints/indicadores-economicos.php"
+        f"?action=indicadores&category={bco}&bco={bco}"
     )
     try:
         bco_int = int(bco)
@@ -157,7 +152,7 @@ async def extract_indicators(
     # ------------------------------------------------------------------
     # Attempt 2: HTML fallback
     # ------------------------------------------------------------------
-    url_html = f"https://www.bcra.gob.ar/entidades-financieras-indicadores/?bco={bco}"
+    url_html = f"https://www.bcra.gob.ar/entidades-financieras-indicadores-economicos/?bco={bco}"
     html = await fetcher.get_text(url_html)
     if html is None:
         logger.warning("[!] Fallback HTML también falló para %s (%s).", bco, nombre)
@@ -168,6 +163,70 @@ async def extract_indicators(
     except Exception as exc:
         logger.warning("[!] Error parseando HTML para %s (%s): %s", bco, nombre, exc)
         return [], None
+
+
+async def extract_eecc(
+    fetcher: AsyncFetcher,
+    bco: str,
+    nombre: str,
+) -> tuple[list[dict], str | None]:
+    """
+    Extract Estados Contables (Balances) for one entity from BCRA REST API.
+
+    Returns: (records, logo_url)
+    Records match the schema expected by DatabaseManager.save_observations() for fuente='eecc'.
+    """
+    url_api = (
+        f"https://www.bcra.gob.ar/api/endpoints/entidades-financieras-estados-contables.php"
+        f"?category={bco}&lang=es"
+    )
+    try:
+        bco_int = int(bco)
+    except (ValueError, TypeError):
+        bco_int = 0
+
+    data = await fetcher.get_json(url_api)
+    if data is not None and isinstance(data, dict):
+        try:
+            return _parse_eecc_json(data, bco_int, nombre)
+        except Exception as exc:
+            logger.warning("[!] Error parseando EECC JSON para %s (%s): %s", bco, nombre, exc)
+            return [], None
+
+    logger.warning("[!] Fallo descarga EECC para %s (%s)", bco, nombre)
+    return [], None
+
+
+async def extract_debtors(
+    fetcher: AsyncFetcher,
+    bco: str,
+    nombre: str,
+) -> tuple[list[dict], str | None]:
+    """
+    Extract Situación de Deudores for one entity from BCRA REST API.
+
+    Returns: (records, logo_url)
+    Records match the schema expected by DatabaseManager.save_observations() for fuente='deudores'.
+    """
+    url_api = (
+        f"https://www.bcra.gob.ar/api/endpoints/entidades-financieras-situacion-deudores.php"
+        f"?category={bco}&lang=es"
+    )
+    try:
+        bco_int = int(bco)
+    except (ValueError, TypeError):
+        bco_int = 0
+
+    data = await fetcher.get_json(url_api)
+    if data is not None and isinstance(data, dict):
+        try:
+            return _parse_debtors_json(data, bco_int, nombre)
+        except Exception as exc:
+            logger.warning("[!] Error parseando Deudores JSON para %s (%s): %s", bco, nombre, exc)
+            return [], None
+
+    logger.warning("[!] Fallo descarga Deudores para %s (%s)", bco, nombre)
+    return [], None
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +291,99 @@ def _parse_json_response(data: dict, bco_int: int) -> tuple[list[dict], str | No
                     "periodo":        columnas.get("col1") or "Actual",
                     "indicador":      str(indicador).strip(),
                     "valor":          valor_float,
+                })
+
+    return records, logo_url
+
+
+def _parse_val(val) -> float | None:
+    """Parse numeric values from BCRA API responses (handles int, float, and strings)."""
+    if val is None or val == "" or val == "-":
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    try:
+        s = str(val).strip()
+        if not s or s == "-":
+            return None
+        if "," in s:
+            s = s.replace(".", "").replace(",", ".")
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_eecc_json(data: dict, bco_int: int, nombre: str) -> tuple[list[dict], str | None]:
+    """Parse Estados Contables (Balances) JSON into observation dicts."""
+    logo_url = data.get("logo_banco_url") or data.get("logo_url")
+    if logo_url and isinstance(logo_url, str):
+        logo_url = logo_url.replace("\\/", "/")
+    else:
+        logo_url = None
+
+    fechas = data.get("fechas", [])
+    filas = data.get("filas", [])
+    records = []
+
+    for fila in filas:
+        titulo = fila.get("titulo")
+        valores = fila.get("valores", [])
+        if not titulo:
+            continue
+
+        titulo_str = str(titulo).strip()
+        for periodo, val in zip(fechas, valores):
+            val_float = _parse_val(val)
+            if val_float is not None:
+                records.append({
+                    "codigo_entidad": bco_int,
+                    "nombre": nombre,
+                    "seccion": "Balances",
+                    "periodo": str(periodo).strip(),
+                    "indicador": titulo_str,
+                    "valor": val_float,
+                })
+
+    return records, logo_url
+
+
+def _parse_debtors_json(data: dict, bco_int: int, nombre: str) -> tuple[list[dict], str | None]:
+    """Parse Situación de Deudores JSON into observation dicts."""
+    logo_url = data.get("logo_banco_url") or data.get("logo_url")
+    if logo_url and isinstance(logo_url, str):
+        logo_url = logo_url.replace("\\/", "/")
+    else:
+        logo_url = None
+
+    columnas = data.get("columnas", [])
+    filas = data.get("filas", [])
+    records = []
+    current_section = "Deudores"
+
+    for fila in filas:
+        titulo = fila.get("titulo")
+        valores = fila.get("valores", [])
+        if not titulo:
+            continue
+
+        titulo_str = str(titulo).strip()
+
+        # Update section if the title indicates a major portfolio
+        for portfolio in OFFICIAL_PORTFOLIOS:
+            if portfolio in titulo_str.upper():
+                current_section = portfolio
+                break
+
+        for periodo, val in zip(columnas, valores):
+            val_float = _parse_val(val)
+            if val_float is not None:
+                records.append({
+                    "codigo_entidad": bco_int,
+                    "nombre": nombre,
+                    "seccion": current_section,
+                    "periodo": str(periodo).strip(),
+                    "indicador": titulo_str,
+                    "valor": val_float,
                 })
 
     return records, logo_url
